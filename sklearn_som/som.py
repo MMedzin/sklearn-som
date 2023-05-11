@@ -66,11 +66,9 @@ class SOM(BaseEstimator, ClusterMixin, TransformerMixin):
         self.sigma = sigma
         self.max_iter = max_iter
 
-        # Initialize weights
+        # # Initialize random generator
         self.random_state = random_state
-        rng = np.random.default_rng(random_state)
-        self.weights = rng.normal(size=(m * n, dim))
-        self._locations = self._get_locations(m, n)
+        self.rng = np.random.default_rng(random_state)
 
         # Fit parameters
         self.epochs = epochs
@@ -160,6 +158,10 @@ class SOM(BaseEstimator, ClusterMixin, TransformerMixin):
         None
             Fits the SOM to the given data but does not return anything.
         """
+        # Initialize weights
+        self.weights = self.rng.normal(size=(self.m * self.n, self.dim))
+        self._locations = self._get_locations(self.m, self.n)
+
         # Count total number of iterations
         global_iter_counter = 0
         n_samples = X.shape[0]
