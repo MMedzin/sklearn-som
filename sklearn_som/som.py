@@ -7,14 +7,26 @@ Created: 1-27-21
 """
 
 import numpy as np
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, ClusterMixin, TransformerMixin
 
-class SOM(BaseEstimator, TransformerMixin):
+
+class SOM(BaseEstimator, ClusterMixin, TransformerMixin):
     """
     The 2-D, rectangular grid self-organizing map class using Numpy.
     """
-    def __init__(self, m=3, n=3, dim=3, lr=1, sigma=1, max_iter=3000,
-                    random_state=None):
+
+    def __init__(
+        self,
+        m=3,
+        n=3,
+        dim=3,
+        lr=1,
+        sigma=1,
+        max_iter=3000,
+        random_state=None,
+        epochs=1,
+        shuffle=True,
+    ):
         """
         Parameters
         ----------
@@ -38,6 +50,11 @@ class SOM(BaseEstimator, TransformerMixin):
             initialization. This will be used to create a new instance of Numpy's
             default random number generator (it will not call np.random.seed()).
             Specify an integer for deterministic results.
+        epochs : int, default=1
+            The number of times to loop through the training data when fitting.
+        shuffle : bool, default True
+            Whether or not to randomize the order of train data when fitting.
+            Can be seeded with np.random.seed() prior to calling fit.
         """
         # Initialize descriptive features of SOM
         self.m = m
@@ -55,6 +72,10 @@ class SOM(BaseEstimator, TransformerMixin):
         self.weights = rng.normal(size=(m * n, dim))
         self._locations = self._get_locations(m, n)
 
+        # Fit parameters
+        self.epochs = epochs
+        self.shuffle = shuffle
+
         # Set after fitting
         self._inertia = None
         self._n_iter_ = None
@@ -71,7 +92,7 @@ class SOM(BaseEstimator, TransformerMixin):
         Find the index of the best matching unit for the input vector x.
         """
         # Stack x to have one row per weight
-        x_stack = np.stack([x]*(self.m*self.n), axis=0)
+        x_stack = np.stack([x] * (self.m * self.n), axis=0)
         # Calculate distance between x and each weight
         distance = np.linalg.norm(x_stack - self.weights, axis=1)
         # Find index of best matching unit
@@ -82,24 +103,29 @@ class SOM(BaseEstimator, TransformerMixin):
         Do one step of training on the given input vector.
         """
         # Stack x to have one row per weight
-        x_stack = np.stack([x]*(self.m*self.n), axis=0)
+        x_stack = np.stack([x] * (self.m * self.n), axis=0)
 
         # Get index of best matching unit
         bmu_index = self._find_bmu(x)
 
         # Find location of best matching unit
-        bmu_location = self._locations[bmu_index,:]
+        bmu_location = self._locations[bmu_index, :]
 
         # Find square distance from each weight to the BMU
-        stacked_bmu = np.stack([bmu_location]*(self.m*self.n), axis=0)
-        bmu_distance = np.sum(np.power(self._locations.astype(np.float64) - stacked_bmu.astype(np.float64), 2), axis=1)
+        stacked_bmu = np.stack([bmu_location] * (self.m * self.n), axis=0)
+        bmu_distance = np.sum(
+            np.power(
+                self._locations.astype(np.float64) - stacked_bmu.astype(np.float64), 2
+            ),
+            axis=1,
+        )
 
         # Compute update neighborhood
-        neighborhood = np.exp((bmu_distance / (self.sigma ** 2)) * -1)
+        neighborhood = np.exp((bmu_distance / (self.sigma**2)) * -1)
         local_step = self.lr * neighborhood
 
         # Stack local step to be proper shape for update
-        local_multiplier = np.stack([local_step]*(self.dim), axis=1)
+        local_multiplier = np.stack([local_step] * (self.dim), axis=1)
 
         # Multiply by difference between input and weights
         delta = local_multiplier * (x_stack - self.weights)
@@ -118,7 +144,7 @@ class SOM(BaseEstimator, TransformerMixin):
         # Compute sum of squared distance (just euclidean distance) from x to bmu
         return np.sum(np.square(x - bmu))
 
-    def fit(self, X, epochs=1, shuffle=True):
+    def fit(self, X, y):
         """
         Take data (a tensor of type float64) as input and fit the SOM to that
         data for the specified number of epochs.
@@ -128,11 +154,6 @@ class SOM(BaseEstimator, TransformerMixin):
         X : ndarray
             Training data. Must have shape (n, self.dim) where n is the number
             of training samples.
-        epochs : int, default=1
-            The number of times to loop through the training data when fitting.
-        shuffle : bool, default True
-            Whether or not to randomize the order of train data when fitting.
-            Can be seeded with np.random.seed() prior to calling fit.
 
         Returns
         -------
@@ -142,14 +163,14 @@ class SOM(BaseEstimator, TransformerMixin):
         # Count total number of iterations
         global_iter_counter = 0
         n_samples = X.shape[0]
-        total_iterations = np.minimum(epochs * n_samples, self.max_iter)
+        total_iterations = np.minimum(self.epochs * n_samples, self.max_iter)
 
-        for epoch in range(epochs):
+        for _ in range(self.epochs):
             # Break if past max number of iterations
             if global_iter_counter > self.max_iter:
                 break
 
-            if shuffle:
+            if self.shuffle:
                 rng = np.random.default_rng(self.random_state)
                 indices = rng.permutation(n_samples)
             else:
@@ -165,7 +186,9 @@ class SOM(BaseEstimator, TransformerMixin):
                 self.step(input)
                 # Update learning rate
                 global_iter_counter += 1
-                self.lr = (1 - (global_iter_counter / total_iterations)) * self.initial_lr
+                self.lr = (
+                    1 - (global_iter_counter / total_iterations)
+                ) * self.initial_lr
 
         # Compute inertia
         inertia = np.sum(np.array([float(self._compute_point_intertia(x)) for x in X]))
@@ -197,11 +220,15 @@ class SOM(BaseEstimator, TransformerMixin):
         """
         # Check to make sure SOM has been fit
         if not self._trained:
-            raise NotImplementedError('SOM object has no predict() method until after calling fit().')
+            raise NotImplementedError(
+                "SOM object has no predict() method until after calling fit()."
+            )
 
         # Make sure X has proper shape
-        assert len(X.shape) == 2, f'X should have two dimensions, not {len(X.shape)}'
-        assert X.shape[1] == self.dim, f'This SOM has dimesnion {self.dim}. Received input with dimension {X.shape[1]}'
+        assert len(X.shape) == 2, f"X should have two dimensions, not {len(X.shape)}"
+        assert (
+            X.shape[1] == self.dim
+        ), f"This SOM has dimesnion {self.dim}. Received input with dimension {X.shape[1]}"
 
         labels = np.array([self._find_bmu(x) for x in X])
         return labels
@@ -223,8 +250,8 @@ class SOM(BaseEstimator, TransformerMixin):
             from each item in X to each cluster center.
         """
         # Stack data and cluster centers
-        X_stack = np.stack([X]*(self.m*self.n), axis=1)
-        cluster_stack = np.stack([self.weights]*X.shape[0], axis=0)
+        X_stack = np.stack([X] * (self.m * self.n), axis=1)
+        cluster_stack = np.stack([self.weights] * X.shape[0], axis=0)
 
         # Compute difference
         diff = X_stack - cluster_stack
@@ -232,7 +259,7 @@ class SOM(BaseEstimator, TransformerMixin):
         # Take and return norm
         return np.linalg.norm(diff, axis=2)
 
-    def fit_predict(self, X, **kwargs):
+    def fit_predict(self, X, y):
         """
         Convenience method for calling fit(X) followed by predict(X).
 
@@ -240,8 +267,6 @@ class SOM(BaseEstimator, TransformerMixin):
         ----------
         X : ndarray
             Data of shape (n, self.dim). The data to fit and then predict.
-        **kwargs
-            Optional keyword arguments for the .fit() method.
 
         Returns
         -------
@@ -250,12 +275,12 @@ class SOM(BaseEstimator, TransformerMixin):
             item in X (after fitting the SOM to the data in X).
         """
         # Fit to data
-        self.fit(X, **kwargs)
+        self.fit(X, y)
 
         # Return predictions
         return self.predict(X)
 
-    def fit_transform(self, X, **kwargs):
+    def fit_transform(self, X, y):
         """
         Convenience method for calling fit(X) followed by transform(X). Unlike
         in sklearn, this is not implemented more efficiently (the efficiency is
@@ -265,8 +290,6 @@ class SOM(BaseEstimator, TransformerMixin):
         ----------
         X : ndarray
             Data of shape (n, self.dim) where n is the number of samples.
-        **kwargs
-            Optional keyword arguments for the .fit() method.
 
         Returns
         -------
@@ -275,7 +298,7 @@ class SOM(BaseEstimator, TransformerMixin):
             from each item in X to each cluster center.
         """
         # Fit to data
-        self.fit(X, **kwargs)
+        self.fit(X, y)
 
         # Return points in cluster distance space
         return self.transform(X)
@@ -287,11 +310,13 @@ class SOM(BaseEstimator, TransformerMixin):
     @property
     def inertia_(self):
         if self._inertia_ is None:
-            raise AttributeError('SOM does not have inertia until after calling fit()')
+            raise AttributeError("SOM does not have inertia until after calling fit()")
         return self._inertia_
 
     @property
     def n_iter_(self):
         if self._n_iter_ is None:
-            raise AttributeError('SOM does not have n_iter_ attribute until after calling fit()')
+            raise AttributeError(
+                "SOM does not have n_iter_ attribute until after calling fit()"
+            )
         return self._n_iter_
