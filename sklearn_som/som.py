@@ -7,8 +7,9 @@ Created: 1-27-21
 """
 
 import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
 
-class SOM():
+class SOM(BaseEstimator, TransformerMixin):
     """
     The 2-D, rectangular grid self-organizing map class using Numpy.
     """
